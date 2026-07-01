@@ -76,6 +76,39 @@ GetTCGEN5MMAMeta(int M, int N, int K, DataType ab_dtype, DataType c_dtype,
     } else {
       FAIL;
     }
+  } else if (ab_dtype.is_tfloat32() && c_dtype.is_float() &&
+             c_dtype.bits() == 32) {
+    if (K % 8 != 0)
+      FAIL;
+    if (!disable_2cta) {
+      if (M % 128 == 0) {
+        for (int atom_n = 256; atom_n >= 32; atom_n -= 32)
+          if (N % atom_n == 0)
+            SUCCESS(256, atom_n, 8, false, true);
+      } else if (M % 64 == 0) {
+        for (int atom_n = 256; atom_n >= 32; atom_n -= 32)
+          if (N % atom_n == 0)
+            SUCCESS(128, atom_n, 8, false, true);
+      }
+    }
+    if (M % 128 == 0) {
+      for (int atom_n = 256; atom_n >= 16; atom_n -= 16)
+        if (N % atom_n == 0)
+          SUCCESS(128, atom_n, 8, false, false);
+      FAIL;
+    } else if (M % 64 == 0) {
+      if (!disable_ws) {
+        for (int atom_n : ws_valid_atom_ns)
+          if (N % atom_n == 0)
+            SUCCESS(64, atom_n, 8, true, false);
+      }
+      for (int atom_n = 256; atom_n >= 8; atom_n -= 8)
+        if (N % atom_n == 0)
+          SUCCESS(64, atom_n, 8, false, false);
+      FAIL;
+    } else {
+      FAIL;
+    }
   } else if ((ab_dtype.is_float8() || ab_dtype.is_float6_e2m3fn() ||
               ab_dtype.is_float6_e3m2fn() || ab_dtype.is_float4()) &&
              ((c_dtype.is_float() && c_dtype.bits() == 32) ||
@@ -183,7 +216,7 @@ inline uint32_t GetTCGEN5InstrDesc(int atom_m, int atom_n, int atom_k,
                                    int scale_in_b) {
   ICHECK(atom_m % 16 == 0) << "atom_m must be divisible by 16";
   ICHECK(atom_n % 8 == 0) << "atom_n must be divisible by 8";
-  ICHECK(atom_k == 16 || atom_k == 32)
+  ICHECK(atom_k == 8 || atom_k == 16 || atom_k == 32)
       << "Unsupported atom_k for TCGEN5MMA descriptor: " << atom_k;
   ICHECK(scale_in_a == 1 || scale_in_a == -1)
       << "scale_in_a must be +/-1 for TCGEN5MMA";
@@ -195,6 +228,8 @@ inline uint32_t GetTCGEN5InstrDesc(int atom_m, int atom_n, int atom_k,
       return static_cast<uint32_t>(0);
     } else if (dtype.is_bfloat16()) {
       return static_cast<uint32_t>(1);
+    } else if (dtype.is_tfloat32()) {
+      return static_cast<uint32_t>(2);
     } else if (dtype.is_float8_e4m3fn() || dtype.is_float8_e4m3fnuz() ||
                dtype.is_float8_e4m3()) {
       return static_cast<uint32_t>(0);
